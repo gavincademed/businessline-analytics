@@ -670,7 +670,7 @@ function buildChips(){
   for(var i=0;i<D.nRows;i++){ var g=D.IG[i];
     if(state.line!=='ALL' && D.groupLine[g]!==state.line) continue;
     totals[g]=(totals[g]||0)+D.A[i]; }
-  var keys=Object.keys(totals).map(Number).sort(function(a,b){ return totals[b]-totals[a]; });
+  var keys=Object.keys(totals).map(Number).sort(function(a,b){ return D.igArr[a].localeCompare(D.igArr[b]); });
   var allBtn=document.createElement('button');
   allBtn.type='button'; allBtn.textContent='All Groups'; allBtn.setAttribute('aria-pressed', state.groups?'false':'true');
   allBtn.addEventListener('click',function(){ state.groups=null; syncChips(); render(); });
