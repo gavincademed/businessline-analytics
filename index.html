@@ -457,7 +457,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     if(v===PW){
       document.getElementById('gate').style.display='none';
       document.getElementById('loader').style.display='flex';
-      window.__loadData && window.__loadData();
+      if(window.__loadData){ window.__loadData(); }
+      else {
+        document.getElementById('loadmsg').textContent='Load failed';
+        var le=document.getElementById('loaderr'); le.style.display='block';
+        le.innerHTML='This copy of the dashboard is incomplete, so its engine never started. The usual cause is a file upload to GitHub that did not finish. Re-download the HTML, confirm it is about 4.4 MB, upload it again as index.html, wait for Netlify to finish deploying, then hard refresh (Cmd+Shift+R).';
+      }
     }
     else{document.getElementById('pwerr').textContent='That code is not right. Please try again.';}
   }
@@ -637,7 +642,9 @@ function buildData(rows){
 }
 
 /* ---------- data load ---------- */
+var HIST_GZ_LEN = 4183712;
 function loadHistLocal(){
+  if(HIST_GZ_LEN && HIST_GZ_B64.length!==HIST_GZ_LEN) return Promise.resolve(null);
   // 2022 to 2024 closed history rides inside this file, gzip compressed
   try{
     if(typeof DecompressionStream==='undefined') return Promise.resolve(null);
@@ -649,14 +656,27 @@ function loadHistLocal(){
 }
 window.__loadData=function(){
   function gviz(id){ return 'https://docs.google.com/spreadsheets/d/'+id+'/gviz/tq?tqx=out:csv&_cb='+Date.now(); }
-  el('loadmsg').textContent='Pulling live data from Google Sheets\u2026';
-  var cur = fetch(gviz(SHEET_ID)).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); });
-  var hist = loadHistLocal();
+  var stage='starting';
+  function setStage(s,msg){ stage=s; el('loadmsg').textContent=msg; }
+  setStage('sheet','Downloading the live sheet\u2026');
+  var watchdog=setTimeout(function(){
+    showLoadErr(new Error('Timed out while '+stage+'. The live sheet may be very slow or unreachable right now. Reload to retry; if it keeps happening, check that the sheet is still shared as "Anyone with the link, Viewer".'));
+  },60000);
+  var cur = fetch(gviz(SHEET_ID)).then(function(r){
+    if(!r.ok) throw new Error('the live sheet returned HTTP '+r.status);
+    return r.text();
+  });
+  var hist = Promise.race([
+    loadHistLocal(),
+    new Promise(function(res){ setTimeout(function(){ res(null); },15000); })
+  ]);
+  cur.then(function(){ setStage('history','Unpacking the 2022 to 2024 history\u2026'); });
   Promise.all([cur,hist]).then(function(texts){
+    clearTimeout(watchdog);
     var curText=texts[0], histText=texts[1];
     if(/^\s*</.test(curText)) throw new Error('SHARE');
     if(histText && /^\s*</.test(histText)) histText=null;
-    el('loadmsg').textContent='Crunching the numbers\u2026';
+    setStage('crunching','Crunching the numbers\u2026');
     setTimeout(function(){
       try{
         var rowsCur=parseCSV(curText);
@@ -677,7 +697,7 @@ window.__loadData=function(){
         el('app').style.display='block';
       }catch(e){ showLoadErr(e); }
     },30);
-  }).catch(showLoadErr);
+  }).catch(function(e){ clearTimeout(watchdog); showLoadErr(e); });
 };
 function headerInfo(rows){
   for(var r=0;r<Math.min(rows.length,12);r++){
